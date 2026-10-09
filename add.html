@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Face ID - Phân Tích & Upload</title>
+  
+  <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Plus Jakarta Sans', sans-serif; }
+    
+    body, html {
+      width: 100%; min-height: 100vh;
+      background: linear-gradient(135deg, #f3e8ff 0%, #e0e7ff 100%);
+      display: flex; justify-content: center; align-items: center; padding: 20px;
+    }
+
+    .app-card {
+      background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(25px);
+      padding: 32px; border-radius: 32px;
+      box-shadow: 0 20px 40px rgba(99, 102, 241, 0.08), inset 0 0 0 1px rgba(255, 255, 255, 0.6);
+      width: 100%; max-width: 460px; display: flex; flex-direction: column; gap: 24px;
+    }
+
+    .app-header { text-align: center; }
+    .app-header h2 { font-size: 1.4rem; font-weight: 800; color: #0F172A; }
+    .app-header p { font-size: 0.9rem; color: #64748B; margin-top: 4px; }
+
+    /* Vùng Upload Ảnh */
+    .upload-zone {
+      position: relative; width: 100%; aspect-ratio: 4 / 3;
+      background: #F8FAFC; border: 2px dashed #CBD5E1; border-radius: 24px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      cursor: pointer; overflow: hidden; transition: all 0.3s ease;
+    }
+    .upload-zone:hover { border-color: #6366F1; background: #EEF2FF; }
+    
+    .upload-zone input[type="file"] {
+      position: absolute; width: 100%; height: 100%; opacity: 0; cursor: pointer; z-index: 10;
+    }
+
+    .upload-placeholder {
+      display: flex; flex-direction: column; align-items: center; gap: 8px; color: #64748B; pointer-events: none;
+    }
+    .upload-placeholder svg { width: 40px; height: 40px; stroke: #6366F1; }
+    
+    .preview-container {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none;
+      align-items: center; justify-content: center; background: #000;
+    }
+    .preview-container img {
+      max-width: 100%; max-height: 100%; object-fit: contain; display: block;
+    }
+    .preview-container canvas {
+      position: absolute; top: 0; left: 0; z-index: 5; pointer-events: none;
+    }
+
+    /* Trạng thái */
+    .status-box {
+      font-size: 0.9rem; font-weight: 600; color: #64748B; text-align: center;
+      padding: 12px; background: #F1F5F9; border-radius: 12px; transition: 0.3s;
+      line-height: 1.4;
+    }
+    .status-box.success { background: #ECFDF5; color: #10B981; border: 1px solid #A7F3D0; }
+    .status-box.error { background: #FFF1F2; color: #F43F5E; border: 1px solid #FECDD3; }
+    .status-box.loading { background: #EEF2FF; color: #6366F1; border: 1px solid #C7D2FE; }
+
+    /* Nút bấm */
+    .btn {
+      width: 100%; padding: 16px; border: none; border-radius: 16px;
+      font-weight: 700; font-size: 1rem; cursor: pointer; transition: 0.3s;
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+    }
+    .btn-primary { background: #6366F1; color: white; box-shadow: 0 8px 20px rgba(99, 102, 241, 0.25); }
+    .btn-primary:hover:not(:disabled) { background: #4F46E5; transform: translateY(-2px); }
+    .btn-primary:disabled { background: #94A3B8; cursor: not-allowed; box-shadow: none; }
+  </style>
+</head>
+<body>
+
+  <div class="app-card">
+    <div class="app-header">
+      <h2>Kiểm Định Chặt Chẽ</h2>
+      <p>Tải ảnh chân dung cá nhân, rõ nét để hệ thống quét</p>
+    </div>
+
+    <!-- Vùng Tải Ảnh -->
+    <div class="upload-zone" id="uploadZone">
+      <input type="file" id="imageInput" accept="image/jpeg, image/png, image/jpg">
+      
+      <div class="upload-placeholder" id="uploadPlaceholder">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+        </svg>
+        <span>Nhấn để chọn ảnh tải lên</span>
+      </div>
+
+      <div class="preview-container" id="previewContainer">
+        <img id="imagePreview" />
+        <canvas id="imageCanvas"></canvas>
+      </div>
+    </div>
+
+    <div id="statusBox" class="status-box">Đang khởi tạo AI...</div>
+
+    <button id="btnProcess" class="btn btn-primary" onclick="processImage()" disabled>
+      Kiểm Định & Phân Tích
+    </button>
+  </div>
+
+  <script>
+    const API_URL = "https://script.google.com/macros/s/AKfycbzU2-uP0jUUia8w74BBQ7U78OUn3d_SE7cEd_LBZJbq2b2g4HCJyFRAOLKMU9p2zb0F/exec";
+    
+    let isAiLoaded = false;
+
+    const imageInput = document.getElementById('imageInput');
+    const imagePreview = document.getElementById('imagePreview');
+    const imageCanvas = document.getElementById('imageCanvas');
+    const previewContainer = document.getElementById('previewContainer');
+    const uploadPlaceholder = document.getElementById('uploadPlaceholder');
+    const statusBox = document.getElementById('statusBox');
+    const btnProcess = document.getElementById('btnProcess');
+
+    // 1. Tải mô hình AI
+    window.onload = async () => {
+      const MODEL_URL = 'https://justadudewhohacks.github.io/face-api.js/models';
+      try {
+        await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL);
+        await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL);
+        isAiLoaded = true;
+        updateStatus('', '✅ Hệ thống AI đã sẵn sàng');
+        btnProcess.disabled = true;
+      } catch (err) {
+        updateStatus('error', '❌ Lỗi tải AI. Vui lòng tải lại trang.');
+      }
+    };
+
+    // 2. Mở ảnh
+    imageInput.addEventListener('change', async (e) => {
+      if (!isAiLoaded) {
+        alert("AI chưa tải xong, vui lòng chờ!");
+        return;
+      }
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const ctx = imageCanvas.getContext('2d');
+      ctx.clearRect(0, 0, imageCanvas.width, imageCanvas.height);
+
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        imagePreview.src = event.target.result;
+        uploadPlaceholder.style.display = 'none';
+        previewContainer.style.display = 'flex';
+        
+        imagePreview.onload = () => {
+          btnProcess.disabled = false;
+          updateStatus('', '📸 Đã nhận ảnh. Sẵn sàng phân tích.');
+        };
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function generateCodeA() {
+      const now = new Date();
+      const yy = String(now.getFullYear()).slice(-2);
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const hh = String(now.getHours()).padStart(2, '0');
+      const min = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      const random2 = Math.floor(Math.random() * 90) + 10;
+      return yy + mm + dd + hh + min + ss + random2;
+    }
+
+    function generateCodeB() {
+      const now = new Date();
+      const hh = String(now.getHours()).padStart(2, '0');
+      const min = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const mo = String(now.getMonth() + 1).padStart(2, '0');
+      const yyyy = now.getFullYear();
+      return `${hh}:${min}:${ss} ${dd}/${mo}/${yyyy}`;
+    }
+
+    function updateStatus(type, text) {
+      statusBox.className = `status-box ${type}`;
+      statusBox.innerText = text;
+    }
+
+    // ========================================================
+    // 3. QUÁ TRÌNH PHÂN TÍCH CHẶT CHẼ & ÉP TIME 10 GIÂY
+    // ========================================================
+    async function processImage() {
+      if (!imagePreview.src) return;
+      
+      btnProcess.disabled = true;
+      updateStatus('loading', '⏳ Đang quét chuyên sâu... Tối đa 10 giây.');
+
+      // Bắt đầu ép thời gian - Tạo Promise hủy nếu quá 10s
+      const timeoutLimit = 10000; 
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error("TIME_OUT")), timeoutLimit)
+      );
+
+      // Cấu hình AI chuẩn 
+      const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 512, scoreThreshold: 0.5 });
+      
+      try {
+        // Quét toàn bộ khuôn mặt trong ảnh VÀ Đua tốc độ với Timeout 10s
+        const detections = await Promise.race([
+          faceapi.detectAllFaces(imagePreview, options).withFaceLandmarks().withFaceDescriptors(),
+          timeoutPromise
+        ]);
+
+        // --- BỘ LỌC KIỂM ĐỊNH KHẮT KHE ---
+        
+        // 1. Không thấy mặt
+        if (!detections || detections.length === 0) {
+          throw new Error("🚫 Không tìm thấy khuôn mặt nào trong ảnh!");
+        }
+        
+        // 2. Chụp quá nhiều người (Group photo)
+        if (detections.length > 1) {
+          throw new Error(`🚫 LỖI: Phát hiện ${detections.length} người trong ảnh. Chỉ chấp nhận ảnh chân dung cá nhân.`);
+        }
+
+        const face = detections[0];
+
+        // 3. Ảnh mờ, che mặt, hoặc nghiêng quá mức (Điểm chất lượng < 0.70)
+        if (face.detection.score < 0.7) {
+          const scorePercent = Math.round(face.detection.score * 100);
+          throw new Error(`🚫 LỖI: Khuôn mặt quá mờ hoặc bị che khuất (Độ tin cậy: ${scorePercent}%).\nYêu cầu tải ảnh chụp thẳng mặt, rõ nét.`);
+        }
+
+        // 4. Mặt quá nhỏ hoặc ở quá xa
+        const box = face.detection.box;
+        const imgW = imagePreview.width;
+        const imgH = imagePreview.height;
+        if (box.width < (imgW * 0.15) || box.height < (imgH * 0.15)) {
+          throw new Error("🚫 LỖI: Khuôn mặt quá nhỏ hoặc chụp ở khoảng cách quá xa.");
+        }
+
+        // --- KẾT THÚC BỘ LỌC CHẶT CHẼ ---
+
+        // Vượt qua kiểm định -> Vẽ viền xanh chứng nhận
+        imageCanvas.width = imagePreview.width;
+        imageCanvas.height = imagePreview.height;
+        const displaySize = { width: imagePreview.width, height: imagePreview.height };
+        faceapi.matchDimensions(imageCanvas, displaySize);
+        const resizedDetection = faceapi.resizeResults(face, displaySize);
+        
+        const drawBox = new faceapi.draw.DrawBox(resizedDetection.detection.box, { boxColor: "#10B981", lineWidth: 3 });
+        drawBox.draw(imageCanvas);
+
+        // Đóng gói JSON
+        const faceDataString = JSON.stringify(Array.from(face.descriptor));
+        
+        const payload = {
+          "sheet": "Face ID",
+          "action": "add",
+          "A": generateCodeA(),
+          "B": generateCodeB(),
+          "C": faceDataString
+        };
+
+        updateStatus('loading', '🚀 Ảnh hợp lệ! Đang gửi dữ liệu lên máy chủ...');
+
+        // Đẩy lên API
+        const response = await fetch(API_URL, {
+          method: 'POST',
+          body: JSON.stringify(payload) 
+        });
+
+        const result = await response.json();
+        
+        if (result && result.status !== "error") {
+          updateStatus('success', `🎉 Thành công! \nMã dữ liệu: ${payload.A}`);
+        } else {
+          throw new Error('⚠️ Lỗi từ server Google Script. Vui lòng thử lại sau.');
+        }
+
+      } catch (error) {
+        // Xử lý thông báo lỗi hiển thị cho người dùng
+        if (error.message === "TIME_OUT") {
+          updateStatus('error', '⏳ LỖI: Quá thời gian 10 giây. Hãy chọn ảnh có dung lượng nhẹ hoặc chụp gần mặt hơn.');
+        } else if (error.message.includes("🚫") || error.message.includes("⚠️")) {
+          updateStatus('error', error.message);
+        } else {
+          console.error(error);
+          updateStatus('error', '🔌 Lỗi kết nối hoặc sự cố hệ thống không mong muốn.');
+        }
+      }
+      
+      btnProcess.disabled = false;
+    }
+  </script>
+</body>
+</html>
